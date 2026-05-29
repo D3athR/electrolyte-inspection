@@ -87,9 +87,19 @@ def build_convnext_tiny(num_classes: int = 2, pretrained: bool = True,
                         dropout: float = 0.4) -> nn.Module:
     model = models.convnext_tiny(weights="IMAGENET1K_V1" if pretrained else None)
     in_features = model.classifier[2].in_features
-    model.classifier[2] = nn.Linear(in_features, num_classes)
+    new_head = nn.Sequential(
+        nn.Dropout(dropout),
+        nn.Linear(in_features, 512),
+        nn.ReLU(inplace=True),
+        nn.Dropout(dropout),
+        nn.Linear(512, num_classes),
+    )
+    model.classifier = new_head
     for p in model.parameters():
         p.requires_grad = False
+    # Unfreeze last stage + classifier
+    for p in model.features[-1].parameters():
+        p.requires_grad = True
     for p in model.classifier.parameters():
         p.requires_grad = True
     return model
