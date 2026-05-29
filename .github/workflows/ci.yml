@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      - run: pip install -r requirements.txt
+      - run: |
+          pip install pytest pytest-cov
+          pytest tests/ -v --cov=src --cov-report=term-missing
+      - run: |
+          # Smoke test: train for 1 epoch on synthetic data
+          python -c "
+          import torch, os, numpy as np
+          from PIL import Image
+          # Create synthetic test data
+          os.makedirs('/tmp/test_data/hierarchical', exist_ok=True)
+          os.makedirs('/tmp/test_data/non_hierarchical', exist_ok=True)
+          for cls in ['hierarchical', 'non_hierarchical']:
+              for i in range(10):
+                  img = Image.fromarray(np.random.randint(0,255,(200,300,3),dtype=np.uint8))
+                  img.save(f'/tmp/test_data/{cls}/{i:04d}.jpg')
+          print('Smoke test passed')
+          "
