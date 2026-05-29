@@ -26,33 +26,22 @@ class MultiScaleConvBlock(nn.Module):
         return self.dropout(self.relu(self.bn(f + s)))
 
 
-class ClassificationHead(nn.Module):
-    """Calibrated classification head with deep bottleneck."""
-    def __init__(self, in_features: int, num_classes: int = 2, dropout: float = 0.4):
-        super().__init__()
-        self.fc = nn.Sequential(
-            nn.Dropout(dropout),
-            nn.Linear(in_features, 512),
-            nn.ReLU(inplace=True),
-            nn.Dropout(dropout),
-            nn.Linear(512, num_classes),
-        )
-
-    def forward(self, x):
-        return self.fc(x)
-
-
 def _replace_head(model: nn.Module, in_features: int, num_classes: int, dropout: float,
                   num_msc_blocks: int = 2):
-    """Replace layer4 and fc with custom MultiScaleConvBlock + ClassificationHead."""
-    # Build new layer4
+    """Replace layer4 and fc with custom MultiScaleConvBlock + deep bottleneck FC."""
     blocks = [model.layer4]
     for _ in range(num_msc_blocks):
         blocks.append(MultiScaleConvBlock(512, 512, dropout * 0.4))
     model.layer4 = nn.Sequential(*blocks)
 
-    # Replace FC
-    model.fc = ClassificationHead(in_features, num_classes, dropout)
+    # Match original checkpoint structure: fc = Sequential(Dropout, Linear, ReLU, Dropout, Linear)
+    model.fc = nn.Sequential(
+        nn.Dropout(dropout),
+        nn.Linear(in_features, 512),
+        nn.ReLU(inplace=True),
+        nn.Dropout(dropout),
+        nn.Linear(512, num_classes),
+    )
     return model
 
 
@@ -80,7 +69,13 @@ def build_efficientnet_b0(num_classes: int = 2, pretrained: bool = True,
                           dropout: float = 0.4) -> nn.Module:
     model = models.efficientnet_b0(weights="IMAGENET1K_V1" if pretrained else None)
     in_features = model.classifier[1].in_features
-    model.classifier = ClassificationHead(in_features, num_classes, dropout)
+    model.classifier = nn.Sequential(
+        nn.Dropout(dropout),
+        nn.Linear(in_features, 512),
+        nn.ReLU(inplace=True),
+        nn.Dropout(dropout),
+        nn.Linear(512, num_classes),
+    )
     for p in model.parameters():
         p.requires_grad = False
     for p in model.classifier.parameters():
