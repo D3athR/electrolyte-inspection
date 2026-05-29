@@ -15,14 +15,29 @@ from typing import Optional
 
 @dataclass
 class HDRConfig:
-    """Multi-exposure capture configuration."""
-    base_exposure_us: int = 10000   # Normal exposure (10ms = 10000us)
-    under_exposure_us: int = 5000   # -1 EV
-    over_exposure_us: int = 20000   # +1 EV
-    use_alignment: bool = True      # Align frames before fusion
-    fusion_contrast: float = 1.0    # Mertens contrast weight
-    fusion_saturation: float = 1.0  # Mertens saturation weight
-    fusion_well_exposed: float = 1.0  # Mertens well-exposedness weight
+    """Multi-exposure capture configuration.
+
+    Defaults match the production electrolyte inspection camera:
+    - miscible camera: 50ms (50000us) normal, 100ms over
+    - hierarchical camera: 10ms (10000us) normal, 20ms over
+    """
+    base_exposure_us: int = 10000    # Normal (matches hierarchical 10ms)
+    over_exposure_us: int = 20000    # +1 EV (double exposure time)
+    use_under_exposure: bool = False # Disabled per operator preference
+    use_alignment: bool = True       # ECC frame alignment
+    fusion_contrast: float = 1.0
+    fusion_saturation: float = 1.0
+    fusion_well_exposed: float = 1.0
+
+    @classmethod
+    def for_hierarchical(cls) -> "HDRConfig":
+        """Config for hierarchical (分层) camera: 10ms normal, 20ms over."""
+        return cls(base_exposure_us=10000, over_exposure_us=20000)
+
+    @classmethod
+    def for_miscible(cls) -> "HDRConfig":
+        """Config for miscible (互溶) camera: 50ms normal, 100ms over."""
+        return cls(base_exposure_us=50000, over_exposure_us=100000)
 
 
 class HDRFusion:
@@ -89,7 +104,7 @@ class HDRFusion:
 
     def capture_and_fuse(self, capture_fn, *args, **kwargs) -> tuple[np.ndarray, dict]:
         """
-        Capture 3 frames at different exposures and fuse.
+        Capture 2 frames (normal + over-exposed), fuse with Mertens.
 
         Args:
             capture_fn: Function that takes exposure_us and returns a BGR frame
@@ -98,11 +113,7 @@ class HDRFusion:
         Returns:
             (fused_image, metadata_dict)
         """
-        exposures = [
-            self.config.under_exposure_us,
-            self.config.base_exposure_us,
-            self.config.over_exposure_us,
-        ]
+        exposures = [self.config.base_exposure_us, self.config.over_exposure_us]
         frames = []
         for exp in exposures:
             frame = capture_fn(exp, *args, **kwargs)
@@ -114,7 +125,7 @@ class HDRFusion:
 
         fused = self.fuse(frames)
         return fused, {
-            "exposures_used": exposures[:len(frames)],
+            "exposures_used": exposures,
             "frames_captured": len(frames),
             "method": "Mertens",
         }
