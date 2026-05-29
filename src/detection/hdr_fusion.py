@@ -31,13 +31,15 @@ class HDRConfig:
 
     @classmethod
     def for_hierarchical(cls) -> "HDRConfig":
-        """Config for hierarchical (分层) camera: 10ms normal, 20ms over."""
+        """Config for hierarchical (分层) camera: 10ms normal, 20ms over.
+        Note: 10ms→20ms = 1 EV. Avoid 50ms (5x over = blown out)."""
         return cls(base_exposure_us=10000, over_exposure_us=20000)
 
     @classmethod
     def for_miscible(cls) -> "HDRConfig":
-        """Config for miscible (互溶) camera: 50ms normal, 100ms over."""
-        return cls(base_exposure_us=50000, over_exposure_us=100000)
+        """Config for miscible (互溶) camera: 50ms normal, 80ms over.
+        Note: 50ms→80ms = ~0.7 EV. Avoid large gaps to prevent blowout."""
+        return cls(base_exposure_us=50000, over_exposure_us=80000)
 
 
 class HDRFusion:
@@ -63,6 +65,19 @@ class HDRFusion:
         """
         if len(frames) < 2:
             return frames[0] if frames else None
+
+        # Auto-reject blown-out frames (mean > 250, std < 10 = all white)
+        valid_frames = []
+        for f in frames:
+            gray = cv2.cvtColor(f, cv2.COLOR_BGR2GRAY) if len(f.shape) == 3 else f
+            if gray.mean() > 250 and gray.std() < 10:
+                print(f'[HDR] Skipping blown-out frame (mean={gray.mean():.0f}, std={gray.std():.0f})')
+                continue
+            valid_frames.append(f)
+
+        if len(valid_frames) < 2:
+            return valid_frames[0] if valid_frames else frames[0]
+        frames = valid_frames
 
         # Align frames if needed
         if self.config.use_alignment and len(frames) >= 2:
